@@ -1,0 +1,36 @@
+{
+    "name": "tina4stack/tina4php-queue",
+    "description": "Queueing for Tina4Php",
+    "license": "MIT",
+    "autoload": {
+        "files": [
+            "Tina4/Initialize.php"
+        ],
+        "classmap": [
+            "Tina4/"
+        ],
+        "psr-4": {
+            "Tina4\\": [
+                "Tina4/"
+            ]
+        }
+    },
+    "authors": [
+        {
+            "name": "Andre van Zuydam",
+            "email": "andrevanzuydam@gmail.com"
+        }
+    ],
+    "require-dev": {
+        "roave/security-advisories": "dev-latest",
+        "phpunit/phpunit": "^9",
+        "overtrue/phplint": "^2.0"
+    },
+    "scripts": {
+        "test": "./vendor/bin/phpunit tests --color --log-junit=tests/junit.xml",
+        "phpmetrics": "phpmetrics --report-html=phpmetrics --junit=tests/junit.xml ./Tina4"
+    },
+    "require": {
+        "tina4stack/tina4php-debug": "^2.0"
+    }
+}

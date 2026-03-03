@@ -14,13 +14,15 @@ class QueueMessage {
     public readonly int $status;
     public readonly int $timestamp;
     public readonly string $deliveryTag;
+    public readonly string $topic;
 
-    public function __construct(string $messageId, string $data, ?string $userId, int $status, int $timestamp, string $deliveryTag) {
+    public function __construct(string $messageId, string $data, ?string $userId, int $status, int $timestamp, string $deliveryTag, string $topic = '') {
         $this->messageId = $messageId;
         $this->data = $data;
         $this->userId = $userId;
         $this->status = $status;
         $this->timestamp = $timestamp;
         $this->deliveryTag = $deliveryTag;
+        $this->topic = $topic;
     }
 }

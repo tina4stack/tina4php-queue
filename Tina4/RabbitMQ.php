@@ -1,17 +1,28 @@
 <?php
+/**
+ * Tina4 - This is not a 4ramework.
+ * Copy-right 2007 - current Tina4
+ * License: MIT https://opensource.org/licenses/MIT
+ */
 
 namespace Tina4;
 
 use PhpAmqpLib\Connection\AMQPStreamConnection;
 use PhpAmqpLib\Message\AMQPMessage;
 use Exception;
+use Generator;
+use SplQueue;
 
 class RabbitMQ implements QueueInterface {
     private $channel;
     private string $queueName;
     private string $exchange;
+    private QueueConfig $config;
+    private string $topic;
 
     public function __construct(QueueConfig $config, string $topic) {
+        $this->config = $config;
+        $this->topic = $topic;
         $namePrefix = $config->prefix ? $config->prefix . '_' : '';
         $vhost = $config->prefix ? '/' . $config->prefix : '/';
         $connectionParams = $config->rabbitmqConfig ?? ['host' => 'localhost', 'port' => 5672, 'user' => 'guest', 'password' => 'guest'];
@@ -29,7 +40,7 @@ class RabbitMQ implements QueueInterface {
         $this->channel->queue_bind($this->queueName, $this->exchange, '');
     }
 
-    public function produce(string $value, ?string $userId, ?callable $deliveryCallback): Exception|QueueMessage
+    public function produce(string $value, ?string $userId, ?callable $deliveryCallback): QueueMessage|Exception
     {
         try {
             $body = [
@@ -40,7 +51,7 @@ class RabbitMQ implements QueueInterface {
             ];
             $msg = new AMQPMessage(json_encode($body), ['delivery_mode' => AMQPMessage::DELIVERY_MODE_PERSISTENT]);
             $this->channel->basic_publish($msg, $this->exchange, '');
-            $response = new QueueMessage($body['message_id'], $value, $userId, 0, $body['in_time'], '0');
+            $response = new QueueMessage($body['message_id'], $value, $userId, 0, $body['in_time'], '0', $this->topic);
             if ($deliveryCallback) {
                 $deliveryCallback($this->channel, null, $response);
             }
@@ -53,19 +64,60 @@ class RabbitMQ implements QueueInterface {
         }
     }
 
-    public function consume(bool $acknowledge, ?callable $consumerCallback): void {
-        try {
-            $msg = $this->channel->basic_get($this->queueName, !$acknowledge);
-            if ($msg) {
-                $data = json_decode($msg->body, true);
+    /**
+     * Generator that yields messages from RabbitMQ using event-driven basic_consume.
+     *
+     * @param bool $acknowledge
+     * @param int $batchSize
+     * @return Generator<int, QueueMessage|null, mixed, void>
+     */
+    public function consume(bool $acknowledge = true, int $batchSize = 1): Generator
+    {
+        $buffer = new SplQueue();
+        $topic = $this->topic;
+
+        $this->channel->basic_qos(null, $batchSize, null);
+        $this->channel->basic_consume(
+            $this->queueName,
+            '',
+            false,
+            !$acknowledge,
+            false,
+            false,
+            function (AMQPMessage $amqpMsg) use ($buffer, $acknowledge, $topic) {
+                $data = json_decode($amqpMsg->body, true);
                 $status = $acknowledge ? 2 : 1;
-                $response = new QueueMessage($data['message_id'], $data['msg'], $data['user_id'], $status, $data['in_time'], $msg->getDeliveryTag());
-                if ($consumerCallback) {
-                    $consumerCallback($this->channel, null, $response);
+                $message = new QueueMessage(
+                    $data['message_id'],
+                    $data['msg'],
+                    $data['user_id'] ?? null,
+                    $status,
+                    $data['in_time'],
+                    (string)$amqpMsg->getDeliveryTag(),
+                    $topic
+                );
+                $buffer->enqueue(['message' => $message, 'amqpMsg' => $amqpMsg]);
+            }
+        );
+
+        while ($this->channel->is_consuming()) {
+            try {
+                $this->channel->wait(null, true);
+            } catch (Exception $e) {
+                (new Debug())->error("Error consuming {$this->queueName}: " . $e->getMessage());
+            }
+
+            if ($buffer->isEmpty()) {
+                yield null;
+            } else {
+                while (!$buffer->isEmpty()) {
+                    $item = $buffer->dequeue();
+                    if ($acknowledge) {
+                        $this->channel->basic_ack($item['amqpMsg']->getDeliveryTag());
+                    }
+                    yield $item['message'];
                 }
             }
-        } catch (Exception $e) {
-            (new Debug())->error("Error consuming {$this->queueName}: " . $e->getMessage());
         }
     }
 }

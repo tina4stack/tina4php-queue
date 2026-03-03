@@ -1,1 +1,4 @@
 /vendor/
+*.db
+tests/junit.xml
+.phpunit.result.cache

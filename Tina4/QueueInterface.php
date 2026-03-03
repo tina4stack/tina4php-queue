@@ -17,16 +17,17 @@ interface QueueInterface
      * @param string $value The message content.
      * @param string|null $userId The user ID associated with the message.
      * @param callable|null $deliveryCallback Callback to handle delivery status.
-     * @return Message|Exception Returns a Message object on success or an Exception on failure.
+     * @return QueueMessage|Exception Returns a QueueMessage object on success or an Exception on failure.
      */
     public function produce(string $value, ?string $userId, ?callable $deliveryCallback): QueueMessage|Exception;
 
     /**
-     * Consumes a message from the queue.
+     * Consumes messages from the queue as a generator.
+     * Yields QueueMessage when a message is available, null when the queue is empty.
      *
-     * @param bool $acknowledge Whether to acknowledge the message.
-     * @param callable|null $consumerCallback Callback to handle consumed messages.
-     * @return void
+     * @param bool $acknowledge Whether to auto-acknowledge messages.
+     * @param int $batchSize Number of messages to attempt per poll cycle.
+     * @return \Generator<int, QueueMessage|null, mixed, void>
      */
-    public function consume(bool $acknowledge, ?callable $consumerCallback): void;
+    public function consume(bool $acknowledge = true, int $batchSize = 1): \Generator;
 }

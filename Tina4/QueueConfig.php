@@ -15,6 +15,8 @@ class QueueConfig {
     public ?array $mongoQueueConfig = null;
     public string $rabbitmqQueue = 'default-queue';
     public string $prefix = '';
+    public float $pollInterval = 0.1;
+    public float $maxBackoff = 5.0;
 
     public function __construct() {}
 }

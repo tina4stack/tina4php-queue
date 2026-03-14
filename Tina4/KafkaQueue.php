@@ -13,12 +13,10 @@ use RdKafka\Producer as KafkaProducer;
 use Exception;
 use Generator;
 
-class KafkaQueue implements QueueInterface {
+class KafkaQueue extends AbstractQueue {
     private KafkaProducer $producer;
     private KafkaConsumer $consumer;
     private string $kafkaTopic;
-    private QueueConfig $config;
-    private string $topic;
 
     public function __construct(QueueConfig $config, string $topic) {
         $this->config = $config;
@@ -43,28 +41,20 @@ class KafkaQueue implements QueueInterface {
         $this->producer = new KafkaProducer($producerConf);
     }
 
-    public function produce(string $value, ?string $userId, ?callable $deliveryCallback): QueueMessage|Exception {
-        try {
-            $body = [
-                'message_id' => uuid7(),
-                'msg' => $value,
-                'user_id' => $userId,
-                'in_time' => hrtime(true)
-            ];
-            $topic = $this->producer->newTopic($this->kafkaTopic);
-            $topic->produce(RD_KAFKA_PARTITION_UA, 0, json_encode($body));
-            $this->producer->flush(1000);
-            $response = new QueueMessage($body['message_id'], $value, $userId, 0, $body['in_time'], '0', $this->topic);
-            if ($deliveryCallback) {
-                $deliveryCallback($this->producer, null, $response);
-            }
-            return $response;
-        } catch (Exception $e) {
-            if ($deliveryCallback) {
-                $deliveryCallback($this->producer, $e, null);
-            }
-            return $e;
-        }
+    protected function getConnection(): mixed {
+        return $this->producer;
+    }
+
+    /**
+     * Sends a message to Kafka.
+     *
+     * @param array $body
+     * @return void
+     */
+    protected function doSend(array $body): void {
+        $topic = $this->producer->newTopic($this->kafkaTopic);
+        $topic->produce(RD_KAFKA_PARTITION_UA, 0, json_encode($body));
+        $this->producer->flush(1000);
     }
 
     /**

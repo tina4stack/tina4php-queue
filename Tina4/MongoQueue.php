@@ -11,11 +11,9 @@ use MongoDB\Client as MongoClient;
 use Exception;
 use Generator;
 
-class MongoQueue implements QueueInterface {
+class MongoQueue extends AbstractQueue {
     private $queue;
     private string $collectionName;
-    private QueueConfig $config;
-    private string $topic;
 
     public function __construct(QueueConfig $config, string $topic) {
         $this->config = $config;
@@ -31,27 +29,20 @@ class MongoQueue implements QueueInterface {
         $this->queue = $client->selectDatabase('queue')->selectCollection($this->collectionName);
     }
 
-    public function produce(string $value, ?string $userId, ?callable $deliveryCallback): QueueMessage|Exception {
-        try {
-            $body = [
-                'message_id' => uuid7(),
-                'msg' => $value,
-                'user_id' => $userId,
-                'in_time' => hrtime(true),
-                'status' => 0
-            ];
-            $this->queue->insertOne($body);
-            $response = new QueueMessage($body['message_id'], $value, $userId, 0, $body['in_time'], '0', $this->topic);
-            if ($deliveryCallback) {
-                $deliveryCallback($this->queue, null, $response);
-            }
-            return $response;
-        } catch (Exception $e) {
-            if ($deliveryCallback) {
-                $deliveryCallback($this->queue, $e, null);
-            }
-            return $e;
-        }
+    protected function getConnection(): mixed {
+        return $this->queue;
+    }
+
+    /**
+     * Sends a message to MongoDB.
+     * Adds the 'status' field required by MongoDB storage.
+     *
+     * @param array $body
+     * @return void
+     */
+    protected function doSend(array $body): void {
+        $body['status'] = 0;
+        $this->queue->insertOne($body);
     }
 
     /**
@@ -102,13 +93,10 @@ class MongoQueue implements QueueInterface {
                 (new Debug())->error("Error consuming {$this->collectionName}: " . $e->getMessage());
             }
 
-            if ($found) {
-                $currentBackoff = $this->config->pollInterval;
-            } else {
+            if (!$found) {
                 yield null;
-                usleep((int)($currentBackoff * 1_000_000));
-                $currentBackoff = min($currentBackoff * 2, $this->config->maxBackoff);
             }
+            $this->handleBackoff($found, $currentBackoff);
         }
     }
 }

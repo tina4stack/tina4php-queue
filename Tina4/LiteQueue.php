@@ -11,11 +11,9 @@ use SQLite3;
 use Exception;
 use Generator;
 
-class LiteQueue implements QueueInterface {
+class LiteQueue extends AbstractQueue {
     private SQLite3 $db;
     private string $table;
-    private QueueConfig $config;
-    private string $topic;
 
     /**
      * @throws Exception
@@ -38,45 +36,30 @@ class LiteQueue implements QueueInterface {
         }
     }
 
+    protected function getConnection(): mixed {
+        return $this->db;
+    }
+
     /**
-     * Produces a message to the SQLite queue.
+     * Sends a message to the SQLite queue.
      *
-     * @param string $value
-     * @param string|null $userId
-     * @param callable|null $deliveryCallback
-     * @return QueueMessage|Exception
+     * @param array $body
+     * @return void
+     * @throws Exception
      */
-    public function produce(string $value, ?string $userId, ?callable $deliveryCallback): QueueMessage|Exception {
-        try {
-            $body = [
-                'message_id' => uuid7(),
-                'msg' => $value,
-                'user_id' => $userId,
-                'in_time' => hrtime(true)
-            ];
-            $stmt = $this->db->prepare("INSERT INTO {$this->table} (message_id, data, status, in_time) VALUES (:message_id, :data, 0, :in_time)");
-            if ($stmt === false) {
-                throw new Exception("Prepare failed: " . $this->db->lastErrorMsg());
-            }
-            $stmt->bindValue(':message_id', $body['message_id'], SQLITE3_TEXT);
-            $stmt->bindValue(':data', json_encode($body), SQLITE3_TEXT);
-            $stmt->bindValue(':in_time', $body['in_time'], SQLITE3_INTEGER);
-            $result = $stmt->execute();
-            if ($result === false) {
-                throw new Exception("Execute failed: " . $this->db->lastErrorMsg());
-            }
-            $stmt->close();
-            $response = new QueueMessage($body['message_id'], $value, $userId, 0, $body['in_time'], '0', $this->topic);
-            if ($deliveryCallback) {
-                $deliveryCallback($this->db, null, $response);
-            }
-            return $response;
-        } catch (Exception $e) {
-            if ($deliveryCallback) {
-                $deliveryCallback($this->db, $e, null);
-            }
-            return $e;
+    protected function doSend(array $body): void {
+        $stmt = $this->db->prepare("INSERT INTO {$this->table} (message_id, data, status, in_time) VALUES (:message_id, :data, 0, :in_time)");
+        if ($stmt === false) {
+            throw new Exception("Prepare failed: " . $this->db->lastErrorMsg());
         }
+        $stmt->bindValue(':message_id', $body['message_id'], SQLITE3_TEXT);
+        $stmt->bindValue(':data', json_encode($body), SQLITE3_TEXT);
+        $stmt->bindValue(':in_time', $body['in_time'], SQLITE3_INTEGER);
+        $result = $stmt->execute();
+        if ($result === false) {
+            throw new Exception("Execute failed: " . $this->db->lastErrorMsg());
+        }
+        $stmt->close();
     }
 
     /**
@@ -133,13 +116,10 @@ class LiteQueue implements QueueInterface {
                 (new Debug())->error("Error consuming {$this->table}: " . $e->getMessage());
             }
 
-            if ($found) {
-                $currentBackoff = $this->config->pollInterval;
-            } else {
+            if (!$found) {
                 yield null;
-                usleep((int)($currentBackoff * 1_000_000));
-                $currentBackoff = min($currentBackoff * 2, $this->config->maxBackoff);
             }
+            $this->handleBackoff($found, $currentBackoff);
         }
     }
 }

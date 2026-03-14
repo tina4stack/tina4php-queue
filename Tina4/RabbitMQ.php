@@ -13,12 +13,10 @@ use Exception;
 use Generator;
 use SplQueue;
 
-class RabbitMQ implements QueueInterface {
+class RabbitMQ extends AbstractQueue {
     private $channel;
     private string $queueName;
     private string $exchange;
-    private QueueConfig $config;
-    private string $topic;
 
     public function __construct(QueueConfig $config, string $topic) {
         $this->config = $config;
@@ -40,28 +38,19 @@ class RabbitMQ implements QueueInterface {
         $this->channel->queue_bind($this->queueName, $this->exchange, '');
     }
 
-    public function produce(string $value, ?string $userId, ?callable $deliveryCallback): QueueMessage|Exception
-    {
-        try {
-            $body = [
-                'message_id' => uuid7(),
-                'msg' => $value,
-                'user_id' => $userId,
-                'in_time' => hrtime(true)
-            ];
-            $msg = new AMQPMessage(json_encode($body), ['delivery_mode' => AMQPMessage::DELIVERY_MODE_PERSISTENT]);
-            $this->channel->basic_publish($msg, $this->exchange, '');
-            $response = new QueueMessage($body['message_id'], $value, $userId, 0, $body['in_time'], '0', $this->topic);
-            if ($deliveryCallback) {
-                $deliveryCallback($this->channel, null, $response);
-            }
-            return $response;
-        } catch (Exception $e) {
-            if ($deliveryCallback) {
-                $deliveryCallback($this->channel, $e, null);
-            }
-            return $e;
-        }
+    protected function getConnection(): mixed {
+        return $this->channel;
+    }
+
+    /**
+     * Sends a message to RabbitMQ.
+     *
+     * @param array $body
+     * @return void
+     */
+    protected function doSend(array $body): void {
+        $msg = new AMQPMessage(json_encode($body), ['delivery_mode' => AMQPMessage::DELIVERY_MODE_PERSISTENT]);
+        $this->channel->basic_publish($msg, $this->exchange, '');
     }
 
     /**

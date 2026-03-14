@@ -2,3 +2,6 @@
 *.db
 tests/junit.xml
 .phpunit.result.cache
+.phpunit.cache
+.claude/
+/metrics/

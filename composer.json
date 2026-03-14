@@ -6,9 +6,6 @@
         "files": [
             "Tina4/Initialize.php"
         ],
-        "classmap": [
-            "Tina4/"
-        ],
         "psr-4": {
             "Tina4\\": [
                 "Tina4/"
